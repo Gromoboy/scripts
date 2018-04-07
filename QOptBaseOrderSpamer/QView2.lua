@@ -156,11 +156,11 @@ function OptionBuyTable:Init()
             cells.selected.SetColor{ background = qc.green }
             -- todo желтизна при выборе любой €чейки опц стола
             self:RefreshOptTheorPriceInfo()
-            if self.lastClick.cell ~= nil then 
-               self.lastClick.cell.SetColor{background = self.lastClick.color}
+            if lc.cell ~= nil and lc.cell ~= cells.highStrikeCall then 
+               lc.cell.SetColor{background = lc.color}
             end
-            self.lastClick.cell = cells.highStrikeCall
-            self.lastClick.color = qc.green
+            lc.cell = cells.highStrikeCall
+            lc.color = qc.green
          end
 
          if lc.row == cells.centrStrikeCall.row and        
@@ -171,11 +171,11 @@ function OptionBuyTable:Init()
             cells.selected.SetValue(cells.centrStrikeCall.GetValue())
             cells.selected.SetColor{ background = qc.green }
             self:RefreshOptTheorPriceInfo()
-            if self.lastClick.cell ~= nil then 
-               self.lastClick.cell.SetColor{background = self.lastClick.color}
+            if lc.cell ~= nil and lc.cell ~= cells.centrStrikeCall then 
+               lc.cell.SetColor{background = lc.color}
             end
-            self.lastClick.cell = cells.centrStrikeCall
-            self.lastClick.color = qc.green
+            lc.cell = cells.centrStrikeCall
+            lc.color = qc.green
          end
          if lc.row == cells.lowStrikeCall.row and        
             lc.col == cells.lowStrikeCall.col then
@@ -186,11 +186,11 @@ function OptionBuyTable:Init()
             cells.selected.SetValue(cells.lowStrikeCall.GetValue())
             cells.selected.SetColor{ background = qc.green }
             self:RefreshOptTheorPriceInfo()
-            if self.lastClick.cell ~= nil then 
-               self.lastClick.cell.SetColor{background = self.lastClick.color}
+            if lc.cell ~= nil and lc.cell ~= cells.lowStrikeCall then 
+               lc.cell.SetColor{background = lc.color}
             end
-            self.lastClick.cell = cells.lowStrikeCall
-            self.lastClick.color = qc.green
+            lc.cell = cells.lowStrikeCall
+            lc.color = qc.green
          end
          if lc.row == cells.highStrikePut.row and        
             lc.col == cells.highStrikePut.col then
@@ -200,11 +200,11 @@ function OptionBuyTable:Init()
             cells.selected.SetValue(cells.highStrikePut.GetValue())
             cells.selected.SetColor{ background = qc.red }
             self:RefreshOptTheorPriceInfo()
-            if self.lastClick.cell ~= nil then 
-               self.lastClick.cell.SetColor{background = self.lastClick.color}
+            if lc.cell ~= nil and lc.cell ~= cells.highStrikePut then 
+               lc.cell.SetColor{background = lc.color}
             end
-            self.lastClick.cell = cells.highStrikePut
-            self.lastClick.color = qc.red
+            lc.cell = cells.highStrikePut
+            lc.color = qc.red
          end
          if lc.row == cells.centrStrikePut.row and        
             lc.col == cells.centrStrikePut.col then
@@ -214,11 +214,11 @@ function OptionBuyTable:Init()
             cells.selected.SetValue(cells.centrStrikePut.GetValue())
             cells.selected.SetColor{ background = qc.red }
             self:RefreshOptTheorPriceInfo()
-            if self.lastClick.cell ~= nil then 
-               self.lastClick.cell.SetColor{background = self.lastClick.color}
+            if lc.cell ~= nil and lc.cell ~= cells.centrStrikePut then 
+               lc.cell.SetColor{background = lc.color}
             end
-            self.lastClick.cell = cells.centrStrikePut
-            self.lastClick.color = qc.red
+            lc.cell = cells.centrStrikePut
+            lc.color = qc.red
          end
          if lc.row == cells.lowStrikePut.row and        
             lc.col == cells.lowStrikePut.col then
@@ -228,11 +228,11 @@ function OptionBuyTable:Init()
             cells.selected.SetValue(cells.lowStrikePut.GetValue())
             cells.selected.SetColor{ background = qc.red }
             self:RefreshOptTheorPriceInfo()
-            if self.lastClick.cell ~= nil then 
-               self.lastClick.cell.SetColor{background = self.lastClick.color}
+            if lc.cell ~= nil and lc.cell ~= cells.lowStrikePut then 
+               lc.cell.SetColor{background = lc.color}
             end
-            self.lastClick.cell = cells.lowStrikePut
-            self.lastClick.color = qc.red
+            lc.cell = cells.lowStrikePut
+            lc.color = qc.red
          end
          -- знак услови€ (больше или меньше)
          if lc.row == cells.condSign.row and 
@@ -397,6 +397,10 @@ function OptionBuyTable:Init()
          end
       end
 
+      if msg == QTABLE_CLOSE then
+        isRun, isScriptRun = false, false 
+      end
+
    end)
 end
 
@@ -461,6 +465,22 @@ end
 function OptionBuyTable:MoveActivOrder( )
    if self.activOrder.price == self.feedOptn.theorprice then return end
    PrintDbgStr("active order price = "..self.activOrder.price.." theorpr= "..self.feedOptn.theorprce)
+   local newOrder = {
+      ACCOUNT     = self.activOrder.account,
+      CLASSCODE   = self.activOrder.class_code,
+      SECCODE     = self.activOrder.sec_code,
+      TYPE        = "L",
+      TRANS_ID    = tostring(_transId),
+      ACTION      = "NEW_ORDER",
+      OPERATION   = self.activOrder.operation,
+      PRICE       = tostring(self.feedOptn.theorprice),
+      QUANTITY    = tostring( self.activOrder.balance )
+   }
+   PrintDbgStr("ќтмена акт орд дл€ перестановки")
+   self.CancelActivOrder()
+   PrintDbgStr("ѕерестановка")
+   local result = sendTransaction(newOrder)
+   assert(result == "", "ќшибка перестановки активного ордера"..result)
 end
 
 function OptionBuyTable:RefreshBaseTickerInfo()

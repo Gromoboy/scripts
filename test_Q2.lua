@@ -32,14 +32,12 @@ end
 function OnStop()
    --obt:SaveTickers ()
 	obt:Delete()
-	isRun = false;
+   isRun = false;
+   return 3000
 end
 
 function OnClose()
-   --obt:SaveTickers ()
-   obt:Delete()
-   obt = nil
-	isRun = false;
+
 end
 
 function OnTransReply(info)
