@@ -1,0 +1,5 @@
+[02/07/18 13:24:35] Trace: Robot started
+[02/07/18 13:24:36] Trace: MarketData created: SPBFUT RIH8
+[02/07/18 13:24:36] Trace: MarketData created: OPTW 
+[02/07/18 13:24:36] Trace: SmartOrder created with trans_id: 7662
+[02/07/18 13:24:36] Trace: Indicator created with tag: 
