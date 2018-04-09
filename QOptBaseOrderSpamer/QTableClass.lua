@@ -51,8 +51,8 @@ function QTableClass:AddCell( args )
    -- name, row, columns
 
    local cell = {}
-   cell.row = args.row
-   cell.col = args.column
+   cell.row = assert(args.row, "не могу добавить €чейку без р€да")
+   cell.col = assert(args.column, "не могу добав €чейку без колонки")
   
    cell.SetValue = function( value )
       if type(value) == "string" then

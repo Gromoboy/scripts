@@ -8,7 +8,7 @@ OptionBuyTable = QTableClass:new{
    optionClass = nil,--SPBOPT"
    account = nil,
    activOrder = nil,
-   __isWaitingCond = false
+   doWaitingCond = false
 }
 
 function OptionBuyTable:Init()
@@ -38,10 +38,12 @@ function OptionBuyTable:Init()
 
    self:AddCell{name = "titleBPMon",      row = 6, column = 1}
    self:AddCell{name = "titleQnty",       row = 6, column = 2}
+   self:AddCell{name = "titleRisk",       row = 6, column = 3}
 
    self:AddCell{name = "basePriceMonitor",row = 7, column = 1}
    self:AddCell{name = "quantity",        row = 7, column = 2}
-   self:AddCell{name = "priceType",       row = 7, column = 3}
+   self:AddCell{name = "riskMon",         row = 7, column = 3}
+   self:AddCell{name = "exInBidOffer",    row = 7, column = 4}
 
    self:AddCell{name = "condSign",        row = 8, column = 1}
 
@@ -64,17 +66,21 @@ function OptionBuyTable:Init()
    setmetatable(self.feedOptn, MarketData)
 
    cells.basePrice.SetValue( 
-      getParamEx( self.baseClass, self.baseTicker, "last" ).param_image 
+      tonumber(
+         getParamEx( self.baseClass, self.baseTicker, "last" ).param_value
+      )
    )
 
    cells.baseSec.SetValue(self.baseTicker)
    cells.condSign.SetValue(">")
-   cells.priceType.SetValue("LAST price")
+   cells.exInBidOffer.SetValue("exclude BidOffer")
    cells.startStop.SetValue("START")
    cells.selected.SetValue("")
    cells.titleQnty.SetValue("quantity:")
    cells.quantity.SetValue(0)
    cells.titleBPMon.SetValue("curPrice:")
+   cells.titleRisk.SetValue("risk:")
+   cells.riskMon.SetValue(0)
    cells.basePriceMonitor.SetValue(0)
    cells.highStrikePut.SetValue("")
    cells.highStrikeCall.SetValue("")
@@ -245,13 +251,13 @@ function OptionBuyTable:Init()
             end
          end
          -- Тип цены (закрытие свечи или последняя сделка)
-         if lc.row == cells.priceType.row and 
-            lc.col == cells.priceType.col then
+         if lc.row == cells.exInBidOffer.row and 
+            lc.col == cells.exInBidOffer.col then
 
-            if cells.priceType.GetValue() == "LAST price" then
-               cells.priceType.SetValue("CLOSE price")
+            if cells.exInBidOffer.GetValue() == "exclude BidOffer" then
+               cells.exInBidOffer.SetValue("include BidOffer")
             else
-               cells.priceType.SetValue("LAST price")
+               cells.exInBidOffer.SetValue("exclude BidOffer")
             end
          end
          -- Запуск (или остановка) заявки
@@ -259,7 +265,7 @@ function OptionBuyTable:Init()
             lc.col == cells.startStop.col then
 
             if cells.startStop.GetValue() == "START" then
-               __isWaitingCond = true 
+               -- self.doWaitingCond = true 
                cells.startStop.SetValue("STOP")
                cells.startStop.SetColor {
                   background = qc.red,
@@ -268,7 +274,7 @@ function OptionBuyTable:Init()
                self:SendOrder()
             else
                
-               __isWaitingCond = false
+               self.doWaitingCond = false
                cells.startStop.SetValue("START")
                cells.startStop.SetColor {
                   background = qc.green, 
@@ -393,7 +399,8 @@ function OptionBuyTable:Init()
             if isRightArrow or isLeftArrow then
                cells.quantity.SetValue( isRightArrow and cells.quantity.GetValue() + 1 or cells.quantity.GetValue() - 1)
             end
-  
+            
+            self:ShowRisk()
          end
       end
 
@@ -463,8 +470,21 @@ function OptionBuyTable:SendOrder(  )
 end
 
 function OptionBuyTable:MoveActivOrder( )
-   if self.activOrder.price == self.feedOptn.theorprice then return end
-   PrintDbgStr("active order price = "..self.activOrder.price.." theorpr= "..self.feedOptn.theorprce)
+   if self.activOrder == nil then return end
+   local tp = self.feedOptn.theorprice
+   local neededPrice
+   if self.cells.exInBidOffer.GetValue():find("include") then
+      --сравним с лучшей ценой в стакане
+      neededPrice = self.activOrder.operation == "B" and math.max( tp, self.feedOptn.bid) or math.min( tp, self.feedOptn.offer)
+      --не дальше 4 шагов от теор цены
+      if math.abs(tp - neededPrice) >= 40 then neededPrice = tp + 40 end
+   else
+      neededPrice = tp
+   end
+
+
+   if self.activOrder.price == neededPrice then return end
+   PrintDbgStr("active order price = "..self.activOrder.price.." theorpr= "..self.feedOptn.theorprice)
    local newOrder = {
       ACCOUNT     = self.activOrder.account,
       CLASSCODE   = self.activOrder.class_code,
@@ -473,11 +493,11 @@ function OptionBuyTable:MoveActivOrder( )
       TRANS_ID    = tostring(_transId),
       ACTION      = "NEW_ORDER",
       OPERATION   = self.activOrder.operation,
-      PRICE       = tostring(self.feedOptn.theorprice),
+      PRICE       = tostring(neededPrice),
       QUANTITY    = tostring( self.activOrder.balance )
    }
    PrintDbgStr("Отмена акт орд для перестановки")
-   self.CancelActivOrder()
+   self:CancelActivOrder()
    PrintDbgStr("Перестановка")
    local result = sendTransaction(newOrder)
    assert(result == "", "Ошибка перестановки активного ордера"..result)
@@ -485,7 +505,9 @@ end
 
 function OptionBuyTable:RefreshBaseTickerInfo()
    self.cells.basePriceMonitor.SetValue( 
-      getParamEx( self.baseClass, self.baseTicker, "last" ).param_image
+      tonumber(
+         getParamEx( self.baseClass, self.baseTicker, "last" ).param_value
+      )
    )
 end
 
@@ -495,13 +517,24 @@ function OptionBuyTable:RefreshOptTheorPriceInfo( )
    end
 end
 
-function OptionBuyTable:Refresh()
+function OptionBuyTable:ShowRisk(  )
+   local qty = self.cells.quantity.GetValue()
+   if qty == 0 then return end
+   local price = self.cells.theorPrice.GetValue()
+   if type(price) == 'string' then return end
+   local curStepPriceCost = self.feedOptn.stepprice
+   local priceStep = self.feedOptn.sec_price_step
+   
+   local risk = curStepPriceCost * price / priceStep * qty
+   --PrintDbgStr(curStepPriceCost.." * "..priceStep.." / "..price.." * "..qty.." = "..risk)
+   self.cells.riskMon.SetValue( math.ceil( math.abs(risk) ).." руб" )
+end
 
-   if self.__isWaitingCond and self:IsConditionMet() then
-      self.__isWaitingCond = false
-      return "Новый обект СмартОрдер создан и запущен"
-   end
-   return nil
+function OptionBuyTable:CheckConditionForPoseGain(  )
+   if self:IsConditionMet() == false then return end
+
+   self.doWaitingCond = false
+   self.SendOrder()
 end
 
 function OptionBuyTable:IsConditionMet(  )

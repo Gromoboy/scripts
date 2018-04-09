@@ -2,7 +2,7 @@ MarketData = {
    __index = function ( oTable, key )
       local params = getParamEx(oTable.classCode, oTable.ticker, key)
       --message("in Market Data")
-      if params.result == "0" then  return "Параметр данного Тикера не найден" end
+      if params.result == "0" then  return "Параметр данного Тикера не найден"..key end
       if tonumber(params.param_type) < 3 then
          return tonumber(params.param_value)
       else 

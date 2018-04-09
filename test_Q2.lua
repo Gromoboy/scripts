@@ -47,7 +47,7 @@ function OnTransReply(info)
       
       info.operation = bit.band(info.flags, 20000) > 0 and "S" or "B"
       PrintDbgStr("Trans Reply 1979 получен, передаю номер ордера, ")
-      PrintDbgStr("направ сделки "..info.operation)
+      PrintDbgStr(info.order_num.." направ сделки "..info.operation)
       obt.activOrder = info
 
    end
@@ -64,8 +64,9 @@ function OnOrder( order )
          obt.activOrder = nil
          PrintDbgStr("Заявка закрыта")
       end
+    PrintDbgStr(order.order_num..' flag= '..order.flags)   
    end
-   PrintDbgStr(order.order_num..' flag= '..order.flags)
+  
 end
 
 function OnQuote( market, ticker)
@@ -75,10 +76,12 @@ end
 function OnParam( market, ticker )
       if market == obt.baseClass and ticker == obt.baseTicker then
          obt:RefreshBaseTickerInfo()
+         if obt.doWaitingCond then obt:CheckConditionForPoseGain() end
       end
 
       if market == obt.optionClass and ticker == obt.cells.selected.GetValue() then
          obt:RefreshOptTheorPriceInfo()
+         obt:ShowRisk()
          if obt.activOrder == nil then return end
          obt:MoveActivOrder() 
       end
