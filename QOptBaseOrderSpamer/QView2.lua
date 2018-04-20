@@ -255,6 +255,8 @@ function OptionBuyTable:Init()
             lc.col == cells.exInBidOffer.col then
 
             if cells.exInBidOffer.GetValue() == "exclude BidOffer" then
+               cells.exInBidOffer.SetValue("include limitBidOffer")
+            elseif  cells.exInBidOffer.GetValue() == "include limitBidOffer" then
                cells.exInBidOffer.SetValue("include BidOffer")
             else
                cells.exInBidOffer.SetValue("exclude BidOffer")
@@ -265,21 +267,16 @@ function OptionBuyTable:Init()
             lc.col == cells.startStop.col then
 
             if cells.startStop.GetValue() == "START" then
-               -- self.doWaitingCond = true 
+               self.doWaitingCond = true 
                cells.startStop.SetValue("STOP")
                cells.startStop.SetColor {
                   background = qc.red,
                   foreground = qc.black
                }
-               self:SendOrder()
+               --self:SendOrder()
             else
-               
-               self.doWaitingCond = false
-               cells.startStop.SetValue("START")
-               cells.startStop.SetColor {
-                  background = qc.green, 
-                  foreground = qc.black
-               }
+               --self.doWaitingCond = false
+               self:ResetStartBtn()
                self:CancelActivOrder()
             end
          end
@@ -301,7 +298,18 @@ function OptionBuyTable:Init()
          local isRightArrow = par2 == 39
          local isMinus      = par2 == 189
    
-       
+         if lc.row == cells.selected.row and
+            lc.col == cells.selected.col then
+
+            local text = cells.selected.GetValue()
+            if isDigit or isLetter then 
+               text = text..string.char(par2) 
+               cells.selected.SetValue(text)
+            elseif isBackspace then
+               if text:len() < 2 then cells.selected.SetValue("")
+               else cells.selected.SetValue( text:sub(1, #text-1) ) end
+            end
+         end
    
          if lc.row == cells.baseSec.row and 
             lc.col == cells.baseSec.col then
@@ -405,10 +413,20 @@ function OptionBuyTable:Init()
       end
 
       if msg == QTABLE_CLOSE then
-        isRun, isScriptRun = false, false 
+         if self.activOrder ~= nil then self:CancelActivOrder() end
+         isRun, isScriptRun = false, false 
       end
 
    end)
+end
+
+function OptionBuyTable:ResetStartBtn(  )
+   self.doWaitingCond = false
+   self.cells.startStop.SetValue("START")
+   self.cells.startStop.SetColor {
+      background = self.QColor.green, 
+      foreground = self.QColor.black
+   }
 end
 
 function OptionBuyTable:CancelAllOrders(  )
@@ -426,24 +444,37 @@ function OptionBuyTable:CancelAllOrders(  )
     assert(result == "", "Ошибка отмены всех заявок"..result)
     self:SetWindowTitle("cansel order for "..self.cells.selected.GetValue())
 end
-
+--
 function OptionBuyTable:CancelActivOrder( )
    if self.activOrder ~= nil and self.activOrder.order_num ~= nil then
 
       local result = sendTransaction{
-         ACCOUNT     = self.account,
+         ACCOUNT     = self.activOrder.account,
          --CLIENT_CODE = self.client,
-         CLASSCODE   = self.optionClass,
-         SECCODE     = self.cells.selected.GetValue(),
+         CLASSCODE   = self.activOrder.class_code,--optionClass,
+         SECCODE     = self.activOrder.sec_code,--cells.selected.GetValue(),
          TRANS_ID    = "666",
          ACTION      = "KILL_ORDER",
          ORDER_KEY   = tostring(self.activOrder.order_num)
       }
-      if assert(result == "") then 
-         PrintDbgStr("активный ордер снят") 
+      if assert(result == "", "ERR cancel order: "..result) then 
+         PrintDbgStr("result =  активный ордер снят") 
+         local account = self.activOrder.account
+         local class_code = self.activOrder.class_code
+         local sec_code = self.activOrder.sec_code
+         local operation = self.activOrder.operation
+         local balance = self.activOrder.balance
          self.activOrder = nil
+         return result,
+         {
+            ["account"]=account, 
+            ["class_code"]=class_code, 
+            ["sec_code"]=sec_code, 
+            ["operation"]=operation, 
+            ["balance"]=balance
+         }
       end
-
+      return result, {}
    end
 end
 
@@ -469,35 +500,68 @@ function OptionBuyTable:SendOrder(  )
    
 end
 
+function IsActivOrderInSpread(  )
+   -- body
+   if self.activOrder == nil then return false end
+   local bestBid    = self.feedOptn.bid
+   local bestBidQty = self.feedOptn.biddepth
+   local bestOffer    = self.feedOptn.offer
+   local bestOfferQty = self.feedOptn.offerdepth
+   local aoPrice   = self.activOrder.price
+   local aoBalance = self.activOrder.balance
+   return (bestBid == aoPrice and bestBidQty == aoBalance) or
+          (bestOffer == aoPrice and bestOfferQty == aoBalance)
+end
+
 function OptionBuyTable:MoveActivOrder( )
-   if self.activOrder == nil then return end
+   if self.activOrder == nil then return end 
+    
+   local lastOrder = self.activOrder 
    local tp = self.feedOptn.theorprice
+   local exCond = self.cells.exInBidOffer.GetValue()
    local neededPrice
-   if self.cells.exInBidOffer.GetValue():find("include") then
+
+   if exCond:find("include") then
+      -- учитывание цен стакана( если в стакане превзойдена теор цена)
+      local isActivOrderForLong = lastOrder.operation == "B"
+      --local selectBest = isActivOrderForLong and math.max or math.min
+      -- проверка что лучш цена в стакане не своя заявка, иначе отмена заявки и пересчет цены выставленияs
+      if self:IsActivOrderInSpread() then 
+         local error
+         error, lastOrder = self:CancelActivOrder()
+         if error ~= "" then PrintDbgStr(error);return end
+         neededPrice = isActivOrderForLong and self.feedOptn.bid or self.feedOptn.offer
+      end
       --сравним с лучшей ценой в стакане
-      neededPrice = self.activOrder.operation == "B" and math.max( tp, self.feedOptn.bid) or math.min( tp, self.feedOptn.offer)
+      --neededPrice = selectBest( tp, stakanBestOffer)
       --не дальше 4 шагов от теор цены
-      if math.abs(tp - neededPrice) >= 40 then neededPrice = tp + 40 end
-   else
+      if exCond:find("limit") and math.abs(tp - neededPrice) >= 40 then 
+         if isActivOrderForLong then neededPrice = tp + 40
+         else neededPrice = tp - 40 end
+      end
+   else --простое следование за теор ценой
       neededPrice = tp
    end
 
 
-   if self.activOrder.price == neededPrice then return end
-   PrintDbgStr("active order price = "..self.activOrder.price.." theorpr= "..self.feedOptn.theorprice)
+   if self.activOrder ~= nil and self.activOrder.price == neededPrice then return end
+   --PrintDbgStr("active order price = "..self.activOrder.price.." theorpr= "..self.feedOptn.theorprice)
    local newOrder = {
-      ACCOUNT     = self.activOrder.account,
-      CLASSCODE   = self.activOrder.class_code,
-      SECCODE     = self.activOrder.sec_code,
+      ACCOUNT     = lastOrder.account,
+      CLASSCODE   = lastOrder.class_code,
+      SECCODE     = lactOrder.sec_code,
       TYPE        = "L",
       TRANS_ID    = tostring(_transId),
       ACTION      = "NEW_ORDER",
-      OPERATION   = self.activOrder.operation,
+      OPERATION   = lastOrder.operation,
       PRICE       = tostring(neededPrice),
-      QUANTITY    = tostring( self.activOrder.balance )
+      QUANTITY    = tostring( lastOrder.balance )
    }
-   PrintDbgStr("Отмена акт орд для перестановки")
-   self:CancelActivOrder()
+   
+   if self.activOrder ~= nil then
+      PrintDbgStr("Отмена акт орд для перестановки")
+      self:CancelActivOrder() 
+   end
    PrintDbgStr("Перестановка")
    local result = sendTransaction(newOrder)
    assert(result == "", "Ошибка перестановки активного ордера"..result)
@@ -531,17 +595,22 @@ function OptionBuyTable:ShowRisk(  )
 end
 
 function OptionBuyTable:CheckConditionForPoseGain(  )
-   if self:IsConditionMet() == false then return end
-
+   PrintDbgStr("проверяем цену ба на условие")
+   if  self:IsConditionMet() ~= true then
+      
+      PrintDbgStr("усл ФАЛЬШ")
+      return 
+   end
+   PrintDbgStr("усл-е выполнено, ПОсылаем ордер")
    self.doWaitingCond = false
-   self.SendOrder()
+   self:SendOrder()
 end
 
 function OptionBuyTable:IsConditionMet(  )
-   if self.cells.condSign == ">" then
-      return self.cells.basePriceMonitor.GetValue() > self.cells.basePrice.GetValue()
-   elseif self.cells.condSign == "<" then
-      return self.cells.basePriceMonitor.GetValue() < self.cells.basePrice.GetValue()
+   if self.cells.condSign.GetValue() == ">" then
+      return tonumber(self.cells.basePriceMonitor.GetValue() ) > tonumber(self.cells.basePrice.GetValue() )
+   elseif self.cells.condSign.GetValue() == "<" then
+      return tonumber(self.cells.basePriceMonitor.GetValue() ) < tonumber(self.cells.basePrice.GetValue() )
    end
    return nil
 end
@@ -587,16 +656,18 @@ function OptionBuyTable:GetRiOptsByStrike(neededStrike)
    if type(neededStrike) == "number" then 
       neededStrike = tostring(neededStrike)
    end
+   PrintDbgStr("needed strike is "..neededStrike)
    --end def
-   --local optns = {}
+
    local optnsStr = self:GetOptions()
-   local optnPattern = "(%a%a)([%d%.]+)%a(%a)(%d)(%a-)"
+   local optnPattern = "(%a%a)([%d%.]+)%a(%a)(%d)"--(%a)"
    local options = {}
    for word in string.gmatch( optnsStr,'[^,]+' ) do
-      
+   --   PrintDbgStr(word) 
       local base, strike, type, year, week = string.match( word,optnPattern )
+      --local class = week ~= nil and "OPTW" or "SPBOPT"
       if base == "RI" and strike == neededStrike then
-         --PrintDbgStr(word)
+         
          local option = {
             strike = tonumber(neededStrike),
             expireDate = getParamEx(self.optionClass, word, "expdate").param_image ,
@@ -604,19 +675,35 @@ function OptionBuyTable:GetRiOptsByStrike(neededStrike)
             name   = word,
             daysToExpire = tonumber(
                getParamEx(self.optionClass, word, "DAYS_TO_MAT_DATE").param_value
-            )
+            ),
+            weekCode = week
          }
+         -- PrintDbgStr(option.name.." de= "..option.daysToExpire.." week ="..tostring(option.weekCode))
          if option.daysToExpire > -1 then table.insert( options, option ) end
       end
    end
-   return options[1], options[2]
+   -- поиск опцов с ближайшим истечением
+   local indexNearestOpt=1
+   local minDaysToExp = options[indexNearestOpt].daysToExpire
+   for i,opt in ipairs(options) do
+      if opt.daysToExpire < minDaysToExp then 
+         minDaysToExp = opt.daysToExpire
+         indexNearestOpt = i
+      end
+   end
+   -- неизвестен порядок Пута и Кола, вернуть обязательно первым значением Колл
+   if options[indexNearestOpt].type == "Put" then
+      return options[indexNearestOpt + 1], options[indexNearestOpt]
+   end
+   return options[indexNearestOpt], options[indexNearestOpt+1]
 end
 
 function OptionBuyTable:FillOptionDesk(  )
 
    local basePrice = getParamEx(self.baseClass, self.baseTicker, "last").param_value
    local centrStrike = math.floor(basePrice / 2500 + 0.5) * 2500
-   
+
+   assert(tonumber(centrStrike)>0, "Cant get base price to fill option desk")
 
    local optionCall, optionPut = self:GetRiOptsByStrike( centrStrike)
    self.cells.centrStrikeCall.SetValue(optionCall.name)
